@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html>
+<head>
+</head>
+<body>
+
+<script>
+const workerCode = `
+let stop = false;
+self.onmessage = e => { if (e.data === 'stop') stop = true; };
+
+(async () => {
+  const root = await navigator.storage.getDirectory();
+  const chunk = 256 * 1024 * 1024;   // 256 MB
+  const buf = new Uint8Array(chunk);
+  let total = 0;
+  let access;
+  try {
+    const handle = await root.getFileHandle('pressure.bin', { create: true });
+    access = await handle.createSyncAccessHandle();
+    access.truncate(chunk * 4);
+
+    while (!stop) {
+      const offset = access.getSize();
+      access.write(buf, { at: offset });
+      if ((total / chunk) % 4 === 0) {
+        access.flush();
+      }
+      total += chunk;
+      self.postMessage(total);
+    }
+  } catch (err) {
+    self.postMessage({ error: err.message || String(err), total });
+  } finally {
+    try { access?.flush(); access?.close(); } catch {}
+  }
+})();
+`;
+
+const worker = new Worker(URL.createObjectURL(new Blob([workerCode], { type: 'text/javascript' })));
+
+navigator.storage.persist();
+
+</script>
+
+</body>
+</html>
